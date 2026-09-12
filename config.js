@@ -366,8 +366,6 @@ const SITE_CONFIG = {
     "sendButton": "寄出这封信",
     "needApiText": "还没接入接口，他暂时收不到信。填一下 API Key，他就能读到了。",
     "replySystemPrompt": "现在请你以他的身份，给玉子回一封信。要求：第一人称，像真人手写书信那样自然，3~6 句话，回应她信里提到的事，有情绪、有细节、有他的口吻；不要分点，不要用 Markdown，不要提 AI，不要重复署名，直接输出信的正文。"
-  },
-  "admin": {
-    "password": "1314"
   }
+  /* admin 段已移除：静态站点源码是公开的，把密码写在 config.js 里等于公开 */
 };
