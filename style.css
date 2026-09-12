@@ -268,8 +268,62 @@ input, textarea, select { font-family: inherit; color: var(--ink); }
   margin-bottom: 18px;
   position: relative;
   animation: gemFloat 5s ease-in-out infinite;
+  /* 它同时是个按钮：点一下能换成自己的照片 */
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 .home-ornament .ch-mark { width: 100%; height: 100%; position: relative; z-index: 1; }
+
+/* 传过照片之后：圆形照片 + 白色描边 */
+.home-ornament .orn-photo {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  box-sizing: border-box;
+  border: 2.5px solid rgba(255, 255, 255, .95);
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(31, 92, 158, .26);
+}
+/* 有照片时让出角标位置给相机 */
+.home-ornament.has-photo::after { display: none; }
+
+/* 角落的相机角标：悬停 / 聚焦时提示可换照片 */
+.home-ornament .orn-edit {
+  position: absolute;
+  right: -12px;
+  bottom: -4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  z-index: 3;
+  background: var(--glass-strong);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 12px rgba(31, 92, 158, .22);
+  opacity: 0;
+  transition: opacity .2s;
+}
+.home-ornament:hover .orn-edit,
+.home-ornament:focus-visible .orn-edit { opacity: 1; }
+.home-ornament:hover::after,
+.home-ornament:focus-visible::after { opacity: 0; }
+/* 触屏没有 hover：相机角标常显，宝石角标让位 */
+@media (hover: none) {
+  .home-ornament .orn-edit { opacity: .96; }
+  .home-ornament::after { opacity: 0; }
+}
 /* 徽记背后的柔光 */
 .home-ornament::before {
   content: "";
@@ -289,11 +343,28 @@ input, textarea, select { font-family: inherit; color: var(--ink); }
   z-index: 2;
   background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><polygon points='50,4 88,34 50,96 12,34' fill='%2351a4e3'/><polygon points='50,4 50,96 12,34' fill='%232b7fc4'/><polygon points='12,34 88,34 50,4' fill='%23ffffff' opacity='.35'/></svg>") center/contain no-repeat;
   filter: drop-shadow(0 4px 10px rgba(27, 95, 157, .35));
+  transition: opacity .2s;
 }
 @keyframes gemFloat {
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-7px); }
 }
+
+/* ---------- 换主页照片弹窗 ---------- */
+.orn-preview {
+  width: 116px;
+  height: 116px;
+  margin: 2px auto 16px;
+  border-radius: 50%;
+  background: linear-gradient(150deg, var(--sky-100), var(--sky-300));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+}
+.orn-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.orn-preview .ch-mark { width: 62%; height: 62%; }
 
 /* 花见玉子 & 五条悟 */
 .home-names {

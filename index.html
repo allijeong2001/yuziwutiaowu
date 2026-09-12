@@ -22,8 +22,8 @@
   </div>
 
   <header class="home-head">
-    <!-- Chrome Hearts 克罗心荆棘十字架 -->
-    <div class="home-ornament" id="homeOrnament"></div>
+    <!-- 圆形徽记：默认克罗心荆棘十字架，点一下可以换成自己的照片 -->
+    <button class="home-ornament" id="homeOrnament" type="button" aria-label="更换主页照片"></button>
     <h1 class="home-names" id="homeNames"></h1>
     <div class="home-lovenote" id="homeLoveNote"></div>
     <p class="home-slogan" id="homeSlogan"></p>
@@ -34,6 +34,9 @@
 
   <div class="home-footer" id="homeFooter">♱ made with love ♱</div>
 </div>
+
+<!-- 换主页照片用的文件选择器 -->
+<input type="file" id="homePhotoFile" accept="image/*" class="hidden">
 
 <script src="config.js"></script>
 <script src="js/app.js"></script>
@@ -52,8 +55,117 @@
   document.getElementById('homeTopMarkL').innerHTML = CROSS;
   document.getElementById('homeTopMarkR').innerHTML = CROSS;
 
-  /* 顶部克罗心徽记 */
-  document.getElementById('homeOrnament').innerHTML = LN.crossMark('round');
+  /* 顶部圆形徽记：默认克罗心十字架，点一下可以换成自己的照片
+   * 照片存在这台设备的浏览器里；没传过时回落到 config.js 的 home.photo */
+  var ornBtn = document.getElementById('homeOrnament');
+  var ornFile = document.getElementById('homePhotoFile');
+  var ORN_BADGE = '<span class="orn-edit" aria-hidden="true">📷</span>';
+
+  function renderOrnament() {
+    var src = LN.getHomePhoto();
+    ornBtn.classList.toggle('has-photo', !!src);
+    ornBtn.innerHTML = ORN_BADGE + (src ? '<img class="orn-photo" alt="">' : LN.crossMark('round'));
+    var img = ornBtn.querySelector('.orn-photo');
+    if (img) {
+      /* config 里配的图片不存在时退回十字架，别留一个破图 */
+      img.addEventListener('error', function () {
+        ornBtn.classList.remove('has-photo');
+        ornBtn.innerHTML = ORN_BADGE + LN.crossMark('round');
+      });
+      img.src = src;
+    }
+    ornBtn.title = '点击换一张照片';
+  }
+
+  /* 弹窗：从本地选一张 / 恢复默认 */
+  var ornMask = document.createElement('div');
+  ornMask.className = 'mask';
+  var ornDlg = document.createElement('div');
+  ornDlg.className = 'dialog';
+  ornDlg.innerHTML =
+    '<div class="panel-head">' +
+      '<span class="panel-title">主页照片</span>' +
+      '<button class="icon-btn" type="button" data-act="close">✕</button>' +
+    '</div>' +
+    '<div class="panel-body">' +
+      '<div class="orn-preview" data-el="preview"></div>' +
+      '<button class="btn block" type="button" data-act="pick">从本地选一张</button>' +
+      '<div class="row mt8" style="gap:10px">' +
+        '<button class="btn ghost" type="button" data-act="reset" style="flex:1">恢复默认</button>' +
+        '<button class="btn ghost" type="button" data-act="close" style="flex:1">取消</button>' +
+      '</div>' +
+      '<p class="muted mt8">照片会先压成小图再存进这台设备的浏览器，不会上传到服务器。</p>' +
+    '</div>';
+
+  var ornPreview = ornDlg.querySelector('[data-el="preview"]');
+  var ornPickBtn = ornDlg.querySelector('[data-act="pick"]');
+
+  function renderOrnPreview() {
+    var src = LN.getHomePhoto();
+    ornPreview.innerHTML = src ? '<img alt="">' : LN.crossMark('round');
+    var img = ornPreview.querySelector('img');
+    if (img) img.src = src;
+  }
+
+  function openOrnDlg() {
+    renderOrnPreview();
+    ornMask.classList.add('show');
+    ornDlg.classList.add('show');
+  }
+  function closeOrnDlg() {
+    ornMask.classList.remove('show');
+    ornDlg.classList.remove('show');
+  }
+
+  ornBtn.addEventListener('click', openOrnDlg);
+  ornMask.addEventListener('click', closeOrnDlg);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && ornDlg.classList.contains('show')) closeOrnDlg();
+  });
+
+  ornDlg.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!btn) return;
+    var act = btn.getAttribute('data-act');
+    if (act === 'close') { closeOrnDlg(); return; }
+    if (act === 'pick') { ornFile.click(); return; }
+    if (act === 'reset') {
+      if (!LN.hasOwnHomePhoto()) { closeOrnDlg(); return; }
+      if (!window.confirm('换回默认的克罗心十字架？')) return;
+      LN.clearHomePhoto();
+      renderOrnament();
+      renderOrnPreview();
+    }
+  });
+
+  ornFile.addEventListener('change', function () {
+    var f = ornFile.files && ornFile.files[0];
+    ornFile.value = '';
+    if (!f) return;
+
+    ornPickBtn.disabled = true;
+    ornPickBtn.textContent = '处理中…';
+
+    /* 74px 的圆显示，压成 480px 正方形足够清晰，也不会撑爆本地存储 */
+    LN.pickImage(f, 480)
+      .then(function (dataUrl) {
+        LN.setHomePhoto(dataUrl);
+        renderOrnament();
+        renderOrnPreview();
+        closeOrnDlg();
+      })
+      .catch(function (err) {
+        window.alert(err && err.message ? err.message : '图片处理失败，换一张试试');
+      })
+      .then(function () {
+        ornPickBtn.disabled = false;
+        ornPickBtn.textContent = '从本地选一张';
+      });
+  });
+
+  document.body.appendChild(ornMask);
+  document.body.appendChild(ornDlg);
+  renderOrnament();
 
   /* 情侣名：花见玉子 & 五条悟 —— 拆成两个名字，中间用 & 徽章连接 */
   var namesBox = document.getElementById('homeNames');

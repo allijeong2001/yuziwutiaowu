@@ -155,6 +155,7 @@
     moments: 'lovenote.moments.v1',
     avatarHim: 'lovenote.avatar.him.v1',
     avatarMe: 'lovenote.avatar.me.v1',
+    homePhoto: 'lovenote.homePhoto.v1',
     letters: 'lovenote.letters.v1',
     letterCount: 'lovenote.letterCount.v1',
     letterNext: 'lovenote.letterNext.v1',
@@ -437,6 +438,27 @@ LN.setAvatar = function (who, dataUrl) { return write(avatarKey(who), String(dat
 LN.clearAvatar = function (who) {
   try { window.localStorage.removeItem(avatarKey(who)); return true; }
   catch (e) { return false; }
+};
+
+/* ---- 主页照片（圆形徽记：本地传一张图替换十字架） ---- */
+/* 本地设过就用本地的；没设过则回落到 config.js 里的 home.photo，
+ * 这样想让所有人（包括对面那台设备）都看到同一张图时，把图片放进
+ * 网站目录并在 config 里写上文件名即可。 */
+LN.getHomePhoto = function () {
+  var v = read(KEYS.homePhoto, '');
+  if (typeof v === 'string' && v) return v;
+  var c = cfg().home || {};
+  return typeof c.photo === 'string' ? c.photo : '';
+};
+LN.setHomePhoto = function (dataUrl) { return write(KEYS.homePhoto, String(dataUrl || '')); };
+LN.clearHomePhoto = function () {
+  try { window.localStorage.removeItem(KEYS.homePhoto); return true; }
+  catch (e) { return false; }
+};
+/* 本地是否已经有自己传的图（用来判断"恢复默认"是不是有效操作） */
+LN.hasOwnHomePhoto = function () {
+  var v = read(KEYS.homePhoto, '');
+  return !!(typeof v === 'string' && v);
 };
 
 /* 把相册里选的图裁成正方形并压小，避免撑爆 localStorage（默认 220px JPEG） */
