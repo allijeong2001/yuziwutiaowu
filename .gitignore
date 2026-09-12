@@ -1,0 +1,23 @@
+# ---- IDE / 工程数据（不要提交）----
+.codebuddy/
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# ---- 本地临时文件 ----
+_probe.txt
+*.log
+*.tmp
+
+# ---- 依赖 ----
+node_modules/
+
+# ---- 发布平台本地目录 ----
+.vercel/
+.netlify/
+.wrangler/
+dist/

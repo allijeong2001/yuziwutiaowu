@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>塔罗占卜</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="float-deco" id="floatDeco"></div>
+
+<div class="page">
+  <header class="topbar">
+    <a class="back-btn" href="index.html" aria-label="返回主页">←</a>
+    <span class="topbar-title" id="pageTitle"></span>
+  </header>
+
+  <div class="tarot-wrap" id="capture">
+
+    <!-- 提问 + 牌数 -->
+    <div class="tarot-panel glass">
+      <h2 id="tarotHeading"></h2>
+      <div class="field">
+        <label id="questionLabel"></label>
+        <input type="text" id="questionInput" maxlength="80">
+      </div>
+      <div class="field">
+        <label>想抽几张牌？（不限定牌阵）</label>
+        <div class="stepper">
+          <button type="button" id="minusBtn" aria-label="减少">−</button>
+          <span class="value" id="countValue">3</span>
+          <button type="button" id="plusBtn" aria-label="增加">＋</button>
+        </div>
+      </div>
+      <button class="btn block" id="drawBtn" type="button"></button>
+      <p class="tarot-hint" id="hintText"></p>
+    </div>
+
+    <!-- 牌面 -->
+    <div class="tarot-board" id="board"></div>
+
+    <!-- 解读 -->
+    <div class="tarot-reading" id="reading"></div>
+
+    <div class="tarot-actions hidden" id="actions">
+      <button class="btn ghost small" id="revealBtn" type="button">全部翻开</button>
+      <button class="btn ghost small" id="againBtn" type="button">重新抽牌</button>
+      <button class="btn small" id="shotBtn" type="button">保存截图</button>
+    </div>
+
+    <p class="tarot-hint">抽牌记录不会保存，刷新页面就当作一场新的占卜。</p>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="js/app.js"></script>
+<script src="js/tarot-data.js"></script>
+<script>
+(function () {
+  var t = SITE_CONFIG.tarot || {};
+  LN.boot({ title: t.pageTitle || '塔罗占卜', deco: true, decoCount: 14 });
+
+  var IMG_BASE = t.imageBase || 'https://cdn.jsdelivr.net/npm/tarot-card-img@0.1.0/';
+  var MIN = Number(t.minCards) || 1;
+  var MAX = Number(t.maxCards) || 12;
+  var count = Math.min(Math.max(Number(t.defaultCards) || 3, MIN), MAX);
+
+  var board = document.getElementById('board');
+  var reading = document.getElementById('reading');
+  var actions = document.getElementById('actions');
+  var hint = document.getElementById('hintText');
+  var questionInput = document.getElementById('questionInput');
+  var countValue = document.getElementById('countValue');
+
+  var state = { question: '', cards: [] };
+
+  /* ---------------- 文案 ---------------- */
+  document.getElementById('pageTitle').textContent = t.title || '命运之牌';
+  document.getElementById('questionLabel').textContent = t.questionLabel || '写下你想问的问题';
+  questionInput.placeholder = t.questionPlaceholder || '';
+  document.getElementById('drawBtn').textContent = '洗牌 · 抽牌';
+  document.getElementById('tarotHeading').innerHTML =
+    LN.crossMark('') + '<span>' + LN.esc(t.title || '命运之牌') + '</span>';
+  hint.textContent = t.hint || '';
+  countValue.textContent = count;
+
+  document.getElementById('minusBtn').addEventListener('click', function () {
+    if (count <= MIN) return;
+    count--; countValue.textContent = count;
+  });
+  document.getElementById('plusBtn').addEventListener('click', function () {
+    if (count >= MAX) return;
+    count++; countValue.textContent = count;
+  });
+
+  /* ---------------- 洗牌 ---------------- */
+  function shuffle(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    }
+    return a;
+  }
+
+  function draw() {
+    var q = questionInput.value.trim();
+    if (!q) {
+      hint.textContent = '先写下你想问的问题，再抽牌哦～';
+      hint.style.color = '#d0476c';
+      questionInput.focus();
+      return;
+    }
+    hint.style.color = '';
+    hint.textContent = t.hint || '';
+
+    var pool = shuffle(window.TAROT_DECK || []);
+    var n = Math.min(count, pool.length);
+    state.question = q;
+    state.cards = [];
+    for (var i = 0; i < n; i++) {
+      state.cards.push({
+        card: pool[i],
+        reversed: !!(t.allowReversed && Math.random() < 0.32),
+        flipped: false
+      });
+    }
+    renderBoard();
+    reading.innerHTML = '';
+    actions.classList.remove('hidden');
+    reading.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  document.getElementById('drawBtn').addEventListener('click', draw);
+  questionInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') draw(); });
+
+  /* ---------------- 渲染牌面 ---------------- */
+  function renderBoard() {
+    board.innerHTML = '';
+    state.cards.forEach(function (item, idx) {
+      var wrap = document.createElement('div');
+      wrap.className = 'tarot-item';
+
+      var cardEl = document.createElement('div');
+      cardEl.className = 'flip-card';
+
+      var inner = document.createElement('div');
+      inner.className = 'flip-inner';
+
+      var front = document.createElement('div');
+      front.className = 'flip-face flip-front';
+      front.innerHTML = LN.crossMark('');
+
+      var back = document.createElement('div');
+      back.className = 'flip-face flip-back' + (item.reversed ? ' reversed' : '');
+      var img = document.createElement('img');
+      img.alt = item.card.cn;
+      img.loading = 'lazy';
+      img.src = IMG_BASE + item.card.img;
+      img.onerror = function () {
+        back.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;font-size:12px;color:#7fa3bf;text-align:center;padding:8px">牌面图片加载失败</div>';
+      };
+      back.appendChild(img);
+
+      inner.appendChild(front);
+      inner.appendChild(back);
+      cardEl.appendChild(inner);
+
+      var meta = document.createElement('div');
+      meta.className = 'tarot-card-meta';
+      meta.style.visibility = 'hidden';
+      meta.innerHTML = '<div>' + LN.esc(item.card.cn) + '</div>' +
+        '<span class="ori' + (item.reversed ? ' rev' : '') + '">' +
+        (item.reversed ? '逆位' : '正位') + '</span>';
+
+      cardEl.addEventListener('click', function () { flip(idx); });
+
+      wrap.appendChild(cardEl);
+      wrap.appendChild(meta);
+      board.appendChild(wrap);
+    });
+  }
+
+  function flip(idx) {
+    var item = state.cards[idx];
+    if (!item || item.flipped) return;
+    item.flipped = true;
+    var cardEl = board.children[idx].querySelector('.flip-card');
+    cardEl.classList.add('flipped');
+    var meta = board.children[idx].querySelector('.tarot-card-meta');
+    meta.style.visibility = 'visible';
+    addReading(idx, item);
+  }
+
+  function addReading(idx, item) {
+    var box = document.createElement('div');
+    box.className = 'read-item';
+    box.dataset.idx = idx;
+    box.innerHTML =
+      '<div class="ri-head">' +
+        '<span class="ri-name">' + (idx + 1) + '. ' + LN.esc(item.card.cn) + '</span>' +
+        '<span class="ri-en">' + LN.esc(item.card.en) + '</span>' +
+        '<span class="ri-ori">' + (item.reversed ? '逆位' : '正位') + '</span>' +
+      '</div>' +
+      '<div class="ri-text">' + LN.esc(item.reversed ? item.card.rev : item.card.up) + '</div>';
+    reading.appendChild(box);
+  }
+
+  document.getElementById('revealBtn').addEventListener('click', function () {
+    state.cards.forEach(function (item, idx) {
+      if (!item.flipped) {
+        /* 逐个翻开，有翻牌的节奏感 */
+        setTimeout(function () { flip(idx); }, idx * 180);
+      }
+    });
+  });
+
+  document.getElementById('againBtn').addEventListener('click', function () {
+    board.innerHTML = '';
+    reading.innerHTML = '';
+    actions.classList.add('hidden');
+    state.cards = [];
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  /* ---------------- 保存截图 ---------------- */
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  document.getElementById('shotBtn').addEventListener('click', function () {
+    var btn = this;
+    if (state.cards.length === 0) return;
+    btn.disabled = true;
+    btn.textContent = '正在生成…';
+
+    var run = (window.html2canvas)
+      ? Promise.resolve()
+      : loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
+
+    /* html2canvas 对 3D 翻转支持有限：截图前先把牌面「拍平」 */
+    var capture = document.getElementById('capture');
+    var flat = LN.$$('.flip-card', capture).map(function (c) {
+      var flipped = c.classList.contains('flipped');
+      var inner = c.querySelector('.flip-inner');
+      var front = c.querySelector('.flip-front');
+      var back = c.querySelector('.flip-back');
+      var old = {
+        inner: inner.getAttribute('style') || '',
+        front: front.getAttribute('style') || '',
+        back: back.getAttribute('style') || ''
+      };
+      inner.style.transition = 'none';
+      inner.style.transform = 'none';
+      front.style.display = flipped ? 'none' : 'flex';
+      back.style.display = flipped ? 'block' : 'none';
+      back.style.transform = 'none';
+      return function () {
+        inner.setAttribute('style', old.inner);
+        front.setAttribute('style', old.front);
+        back.setAttribute('style', old.back);
+      };
+    });
+
+    run.then(function () {
+      return new Promise(function (r) { setTimeout(r, 320); });
+    }).then(function () {
+      return window.html2canvas(capture, {
+        backgroundColor: '#eaf8ff',
+        useCORS: true,
+        scale: 2
+      });
+    }).then(function (canvas) {
+      flat.forEach(function (restore) { restore(); });
+      var a = document.createElement('a');
+      a.download = '塔罗占卜_' + new Date().getTime() + '.png';
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+      btn.disabled = false;
+      btn.textContent = '保存截图';
+    }).catch(function () {
+      flat.forEach(function (restore) { restore(); });
+      btn.disabled = false;
+      btn.textContent = '保存截图';
+      hint.textContent = '自动截图失败（可能是图片跨域），可以直接用手机/电脑自带的截图功能保存这一屏。';
+      hint.style.color = '#d0476c';
+    });
+  });
+})();
+</script>
+</body>
+</html>

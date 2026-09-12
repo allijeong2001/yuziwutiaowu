@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>写给他的信</title>
+<!-- 开源信纸样式：cognitom/paper-css -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/cognitom/paper-css@0.4.1/paper.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="float-deco" id="floatDeco"></div>
+
+<div class="page">
+  <header class="topbar">
+    <a class="back-btn" href="index.html" aria-label="返回主页">←</a>
+    <span class="topbar-title" id="pageTitle"></span>
+    <button class="icon-btn" id="apiBtn" type="button" aria-label="接口设置" style="margin-left:auto">⚙</button>
+  </header>
+
+  <div class="letter-wrap">
+
+    <div class="letter-tabs">
+      <button class="btn small" id="tabWrite" type="button">写信</button>
+      <button class="btn ghost small" id="tabBox" type="button">信匣</button>
+    </div>
+
+    <!-- ===== 写信 ===== -->
+    <div id="composeView">
+      <div class="letter-paper sheet" id="writeSheet">
+        <div class="letter-head">
+          <span class="ch-mark"><svg viewBox="0 0 100 140"><use href="#ln-cross"/></svg></span>
+          <span class="lh-title" id="letterTitle"></span>
+          <span class="lh-time" id="letterDate"></span>
+        </div>
+        <div class="letter-body" id="letterBody" contenteditable="true" spellcheck="false"></div>
+        <div class="letter-sign" id="letterSign"></div>
+      </div>
+
+      <div class="letter-actions">
+        <button class="btn" id="sendLetterBtn" type="button"></button>
+        <button class="btn ghost" id="clearLetterBtn" type="button">清空</button>
+      </div>
+      <p class="letter-reply-hint" id="replyHint"></p>
+    </div>
+
+    <!-- ===== 信匣 ===== -->
+    <div id="boxView" class="hidden">
+      <p class="letter-reply-hint" id="boxHint"></p>
+      <div class="letter-list" id="letterList"></div>
+    </div>
+
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="js/app.js"></script>
+<script>
+(function () {
+  var cfg = SITE_CONFIG.letter || {};
+  LN.boot({ title: cfg.pageTitle || '写给他的信', decoCount: 12 });
+
+  var composeView = document.getElementById('composeView');
+  var boxView = document.getElementById('boxView');
+  var tabWrite = document.getElementById('tabWrite');
+  var tabBox = document.getElementById('tabBox');
+  var bodyEl = document.getElementById('letterBody');
+  var replyHint = document.getElementById('replyHint');
+  var boxHint = document.getElementById('boxHint');
+  var letterList = document.getElementById('letterList');
+  var sendBtn = document.getElementById('sendLetterBtn');
+
+  /* ---------------- 静态文案 ---------------- */
+  document.getElementById('pageTitle').textContent = cfg.pageTitle || '写给他的信';
+  document.getElementById('letterTitle').textContent = cfg.title || '见字如面';
+  document.getElementById('letterSign').textContent = cfg.sign || '';
+  sendBtn.textContent = cfg.sendButton || '寄出这封信';
+  bodyEl.setAttribute('data-placeholder', cfg.placeholder || '写下你想对他说的话…');
+
+  function todayStr() {
+    var d = new Date();
+    return d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日';
+  }
+  document.getElementById('letterDate').textContent = todayStr();
+
+  /* 接口设置：换 Key / 删 Key / 测连接 */
+  document.getElementById('apiBtn').addEventListener('click', function () {
+    LN.openApiDialog({ onSaved: renderHint });
+  });
+
+  /* ---------------- 视图切换 ---------------- */
+  function switchView(which) {
+    var isWrite = which === 'write';
+    composeView.classList.toggle('hidden', !isWrite);
+    boxView.classList.toggle('hidden', isWrite);
+    tabWrite.className = isWrite ? 'btn small' : 'btn ghost small';
+    tabBox.className = isWrite ? 'btn ghost small' : 'btn small';
+    if (!isWrite) renderLetters();
+  }
+  tabWrite.addEventListener('click', function () { switchView('write'); });
+  tabBox.addEventListener('click', function () { switchView('box'); });
+
+  /* ---------------- 状态提示 ----------------
+   * 只提示"还没接接口"，回信时机不写在页面上。
+   */
+  function renderHint() {
+    replyHint.style.color = '';
+    replyHint.textContent = LN.hasApi()
+      ? ''
+      : (cfg.needApiText || '还没接入接口，他暂时收不到信。');
+    var meCount = LN.getLetters().filter(function (l) { return l.from === 'me'; }).length;
+    var himCount = LN.getLetters().filter(function (l) { return l.from === 'him'; }).length;
+    boxHint.textContent = '你寄出 ' + meCount + ' 封，他回了 ' + himCount + ' 封。';
+  }
+
+  function setStatus(msg, isErr) {
+    replyHint.textContent = msg;
+    replyHint.style.color = isErr ? '#d0476c' : '';
+  }
+
+  /* ---------------- 寄信 ---------------- */
+  function getDraft() {
+    return String(bodyEl.innerText || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function shake(el) {
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.style.animation = 'shakeX .4s ease';
+    setTimeout(function () { el.style.animation = ''; }, 450);
+    if (!document.getElementById('shakeStyle')) {
+      var s = document.createElement('style');
+      s.id = 'shakeStyle';
+      s.textContent = '@keyframes shakeX{0%,100%{transform:translateX(0)}25%{transform:translateX(-7px)}50%{transform:translateX(7px)}75%{transform:translateX(-4px)}}';
+      document.head.appendChild(s);
+    }
+  }
+
+  sendBtn.addEventListener('click', function () {
+    var text = getDraft();
+    if (!text) {
+      shake(document.getElementById('writeSheet'));
+      setStatus('还没写内容呢，先写点什么吧～', true);
+      bodyEl.focus();
+      return;
+    }
+
+    var letters = LN.getLetters();
+    letters.push({ id: LN.uid(), from: 'me', text: text, time: Date.now() });
+    LN.setLetters(letters);
+
+    var count = LN.getLetterCount() + 1;
+    LN.setLetterCount(count);
+
+    bodyEl.innerHTML = '';
+    document.getElementById('letterDate').textContent = todayStr();
+    renderHint();
+    switchView('box');
+
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    maybeReply(count);
+  });
+
+  document.getElementById('clearLetterBtn').addEventListener('click', function () {
+    bodyEl.innerHTML = '';
+    bodyEl.focus();
+  });
+
+  /* ---------------- 回信（每 3~5 封一次） ---------------- */
+  function maybeReply(count) {
+    var need = LN.getLetterNext();
+    renderHint();
+    if (count < need) return;
+    if (!LN.hasApi()) return;
+    askReply();
+  }
+
+  function askReply() {
+    var mine = LN.getLetters().filter(function (l) { return l.from === 'me'; }).slice(-3);
+    if (!mine.length) return;
+    var p = LN.getPersona();
+
+    var context = mine.map(function (l) {
+      return '（' + LN.fmtFull(l.time) + '）\n' + l.text;
+    }).join('\n\n---\n\n');
+
+    sendBtn.disabled = true;
+    sendBtn.textContent = '他正在回信…';
+
+    LN.chatApi([
+      {
+        role: 'system',
+        content: (p.systemPrompt || '') + '\n' + (cfg.replySystemPrompt || '请以他的身份回一封短信。')
+      },
+      { role: 'user', content: '玉子最近写给我的信：\n\n' + context + '\n\n请回信。' }
+    ], { temperature: 0.9, maxTokens: 500 })
+      .then(function (text) {
+        var letters = LN.getLetters();
+        letters.push({ id: LN.uid(), from: 'him', text: String(text).trim(), time: Date.now() });
+        LN.setLetters(letters);
+        LN.setLetterCount(0);
+        LN.rollLetterNext();
+        renderLetters();
+        renderHint();
+      })
+      .catch(function (err) {
+        setStatus('回信失败：' + (err && err.message ? err.message : '未知错误'), true);
+      })
+      .then(function () {
+        sendBtn.disabled = false;
+        sendBtn.textContent = cfg.sendButton || '寄出这封信';
+      });
+  }
+
+  /* ---------------- 渲染信匣 ---------------- */
+  function renderLetters() {
+    var letters = LN.getLetters();
+    var name = LN.getPersona().name || '他';
+    letterList.innerHTML = '';
+
+    if (!letters.length) {
+      letterList.innerHTML = '<div class="letter-paper sheet"><div class="letter-body" style="text-align:center;font-size:16px">信匣还是空的，去写第一封信吧。</div></div>';
+      return;
+    }
+
+    letters.forEach(function (l) {
+      var isMe = l.from === 'me';
+      var sheet = document.createElement('div');
+      sheet.className = 'letter-paper sheet';
+      sheet.innerHTML =
+        '<div class="letter-head">' +
+          '<span class="ch-mark"><svg viewBox="0 0 100 140"><use href="#ln-cross"/></svg></span>' +
+          '<span class="lh-title">' + LN.esc(isMe ? ('致 ' + name) : (name + ' 的回信')) + '</span>' +
+          '<span class="lh-time">' + LN.esc(LN.fmtFull(l.time)) + '</span>' +
+        '</div>' +
+        '<div class="letter-body">' + LN.esc(l.text) + '</div>' +
+        (isMe
+          ? '<div class="letter-sign">' + LN.esc(cfg.sign || '') + '</div>'
+          : '<div class="letter-sign">' + LN.esc(cfg.hisSign || name) + '</div>');
+      letterList.appendChild(sheet);
+    });
+  }
+
+  /* ---------------- 初始化 ---------------- */
+  renderHint();
+  switchView('write');
+})();
+</script>
+</body>
+</html>

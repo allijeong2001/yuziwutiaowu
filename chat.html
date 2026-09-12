@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>聊天</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="chat-app" id="chatApp">
+
+  <!-- 顶部：返回 + 昵称 + 模式切换 + 设置 -->
+  <header class="chat-header">
+    <a class="back-btn" href="index.html" aria-label="返回主页">←</a>
+    <span class="chat-title" id="chatTitle"></span>
+    <div class="mode-pill" id="modePill">
+      <button type="button" data-mode="cards">字卡</button>
+      <button type="button" data-mode="ai">AI</button>
+    </div>
+    <button class="icon-btn" id="settingsBtn" type="button" aria-label="设置">⚙</button>
+  </header>
+
+  <!-- 聊天记录（保存在本机浏览器，刷新 / 换 Key 都不会丢） -->
+  <main class="chat-messages" id="messages"></main>
+
+  <!-- 底部输入栏 -->
+  <footer class="chat-input-bar">
+    <button class="icon-btn" id="deckBtn" type="button" aria-label="字卡库">🎴</button>
+    <input type="text" id="chatInput" autocomplete="off" maxlength="500">
+    <button class="send-btn" id="sendBtn" type="button"></button>
+  </footer>
+</div>
+
+<!-- ===== 字卡库抽屉 ===== -->
+<div class="mask" id="deckMask"></div>
+<div class="sheet-panel" id="deckPanel">
+  <div class="panel-head">
+    <span class="ch-mark" style="width:16px;height:22px"><svg viewBox="0 0 100 140"><use href="#ln-cross"/></svg></span>
+    <span class="panel-title">字卡库</span>
+    <button class="icon-btn" id="deckClose" type="button">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="add-card-row">
+      <input type="text" id="newCardInput" placeholder="输入一句新的字卡内容…" maxlength="120">
+      <button class="btn small" id="addCardBtn" type="button">添加</button>
+    </div>
+    <div class="row spread mt8">
+      <span class="muted" id="deckCount"></span>
+      <button class="btn ghost small" id="resetCardsBtn" type="button">恢复默认字卡</button>
+    </div>
+    <div class="card-grid mt14" id="cardGrid"></div>
+    <p class="muted mt14">
+      点击任意字卡 = 让他把这句话说出来；<b>✎</b> 修改，<b>✕</b> 删除。<br>
+      所有改动都保存在本机浏览器（localStorage）里，只要不清理浏览器数据，关掉网页再打开依然在。
+    </p>
+  </div>
+</div>
+
+<!-- ===== 设置弹窗 ===== -->
+<div class="mask" id="settingsMask"></div>
+<div class="dialog" id="settingsDialog">
+  <div class="panel-head">
+    <span class="panel-title">人物设定</span>
+    <button class="icon-btn" id="settingsClose" type="button">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="field">
+      <label>他叫什么名字</label>
+      <input type="text" id="setName" maxlength="20">
+    </div>
+    <div class="field">
+      <label>他的头像文字（1~2 个字）</label>
+      <input type="text" id="setAvatar" maxlength="2">
+    </div>
+    <div class="field">
+      <label>你叫什么名字</label>
+      <input type="text" id="setUserName" maxlength="20">
+    </div>
+    <div class="field">
+      <label>人物设定（人设 / System Prompt）</label>
+      <textarea id="setPersona" placeholder="描述他是什么样的人、怎么说话…"></textarea>
+      <div class="tip">AI 模式下每次对话都会带上这段设定，随时可以改，改完记得保存。</div>
+    </div>
+    <div class="field">
+      <label>接口（AI 聊天用的）</label>
+      <p class="muted" id="apiState"></p>
+      <button class="btn ghost small block mt8" id="openApiBtn" type="button">接口设置 / 更换 Key</button>
+      <div class="tip">在弹窗里可以换 Key、删 Key、改 Base URL 和模型，还能一键测连接。</div>
+    </div>
+    <button class="btn block" id="saveSettings" type="button">保存设置</button>
+    <p class="muted mt14">当前模式：<b id="curModeText">字卡传讯</b>。字卡模式下不需要 API Key。</p>
+    <button class="btn ghost small block mt8" id="clearLog" type="button">清空聊天记录</button>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="js/app.js"></script>
+<script>
+(function () {
+  var boot = LN.boot({ title: (SITE_CONFIG.chat && SITE_CONFIG.chat.pageTitle) || '聊天' });
+  var c = SITE_CONFIG.chat || {};
+
+  var root = document.documentElement;
+  LN.safeSet(root, '--partner-bubble', c.partnerBubbleColor);
+  LN.safeSet(root, '--partner-bubble-text', c.partnerBubbleTextColor);
+  LN.safeSet(root, '--user-bubble', c.userBubbleColor);
+  LN.safeSet(root, '--user-bubble-text', c.userBubbleTextColor);
+
+  var msgBox = document.getElementById('messages');
+  var input = document.getElementById('chatInput');
+  var sendBtn = document.getElementById('sendBtn');
+  var titleEl = document.getElementById('chatTitle');
+
+  var mode = LN.getMode();
+  var waiting = false;
+  var log = LN.getChatLog();  // 已经存在本机的聊天记录
+  var history = [];           // AI 模式下的上下文
+
+  /* ---------------- 渲染 ---------------- */
+  function persona() { return LN.getPersona(); }
+
+  function refreshTitle() {
+    var p = persona();
+    titleEl.textContent = p.name;
+    document.title = (SITE_CONFIG.global.siteTitle || 'Love Note') + ' · 和' + p.name + '聊天';
+  }
+
+  /* 存一条 + 画一条；系统提示只画不存 */
+  function addMessage(who, text) {
+    if (who !== 'system') {
+      log.push({ who: who, text: text, time: Date.now() });
+      LN.setChatLog(log);
+    }
+    return paintMessage(who, text);
+  }
+
+  function paintMessage(who, text) {
+    var msg = document.createElement('div');
+    msg.className = 'msg ' + who;
+
+    if (who === 'system') {
+      var b = document.createElement('div');
+      b.className = 'bubble';
+      b.textContent = text;
+      msg.appendChild(b);
+      msgBox.appendChild(msg);
+      scrollToBottom();
+      return msg;
+    }
+
+    var p = persona();
+    var avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    if (who === 'partner') {
+      avatar.style.background = c.partnerAvatarColor || '#2b7fc4';
+      avatar.textContent = p.avatarText || '悟';
+    } else {
+      avatar.style.background = c.userAvatarColor || '#8ecbf2';
+      avatar.textContent = c.userAvatarText || '我';
+    }
+
+    var bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+
+    msg.appendChild(avatar);
+    msg.appendChild(bubble);
+    msgBox.appendChild(msg);
+    scrollToBottom();
+    return msg;
+  }
+
+  function addTyping() {
+    removeTyping();
+    var p = persona();
+    var msg = document.createElement('div');
+    msg.className = 'msg partner';
+    msg.id = 'typingMsg';
+    msg.innerHTML =
+      '<div class="avatar" style="background:' + (c.partnerAvatarColor || '#2b7fc4') + '">' +
+        LN.esc(p.avatarText || '悟') + '</div>' +
+      '<div class="bubble"><span class="typing-dots"><i></i><i></i><i></i></span></div>';
+    msgBox.appendChild(msg);
+    scrollToBottom();
+  }
+
+  function removeTyping() {
+    var t = document.getElementById('typingMsg');
+    if (t && t.parentNode) t.parentNode.removeChild(t);
+  }
+
+  function scrollToBottom() {
+    requestAnimationFrame(function () { msgBox.scrollTop = msgBox.scrollHeight; });
+  }
+
+  function lockInput(lock) {
+    waiting = lock;
+    sendBtn.disabled = lock;
+    sendBtn.style.opacity = lock ? '.6' : '1';
+  }
+
+  /* ---------------- 模式 ---------------- */
+  function renderMode() {
+    LN.$$('#modePill button').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+    });
+    var txt = document.getElementById('curModeText');
+    if (txt) txt.textContent = mode === 'ai' ? 'AI 聊天' : '字卡传讯';
+    input.placeholder = mode === 'ai'
+      ? ('和' + persona().name + '聊天…')
+      : (c.inputPlaceholder || '和他说点什么吧…');
+  }
+
+  function setMode(m, silent) {
+    if (m !== 'ai' && m !== 'cards') return;
+    mode = m;
+    LN.setMode(m);
+    renderMode();
+    if (silent) return;
+    if (mode === 'ai') {
+      if (!LN.hasApi()) {
+        addMessage('system', '已切换到 AI 聊天，但还没有填写 API Key，点右上角 ⚙ 填一下就能聊了。');
+      } else {
+        addMessage('system', '已切换到 AI 聊天，他会按你设定的人设回你。');
+      }
+    } else {
+      addMessage('system', '已切换到字卡传讯：发送后会从字卡库里随机抽一张回你。');
+    }
+  }
+
+  LN.$$('#modePill button').forEach(function (b) {
+    b.addEventListener('click', function () { setMode(b.getAttribute('data-mode')); });
+  });
+
+  /* ---------------- 字卡 ---------------- */
+  function pickCard() {
+    var list = LN.getCards();
+    if (!list.length) return '……';
+    return list[Math.floor(Math.random() * list.length)].text;
+  }
+
+  function renderDeck() {
+    var list = LN.getCards();
+    var grid = document.getElementById('cardGrid');
+    grid.innerHTML = '';
+    document.getElementById('deckCount').textContent = '共 ' + list.length + ' 张字卡';
+
+    list.forEach(function (card) {
+      var chip = document.createElement('div');
+      chip.className = 'card-chip';
+
+      var t = document.createElement('span');
+      t.className = 'chip-text';
+      t.textContent = card.text;
+      t.title = '点击让他说出这句话';
+      t.addEventListener('click', function () {
+        closeDeck();
+        addMessage('partner', card.text);
+      });
+
+      var ops = document.createElement('span');
+      ops.className = 'chip-ops';
+
+      var edit = document.createElement('button');
+      edit.type = 'button';
+      edit.textContent = '✎';
+      edit.title = '修改';
+      edit.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var val = window.prompt('修改这张字卡：', card.text);
+        if (val === null) return;
+        val = val.trim();
+        if (!val) return;
+        var arr = LN.getCards().map(function (x) {
+          return x.id === card.id ? { id: x.id, text: val } : x;
+        });
+        LN.setCards(arr);
+        renderDeck();
+      });
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'del';
+      del.textContent = '✕';
+      del.title = '删除';
+      del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var arr = LN.getCards().filter(function (x) { return x.id !== card.id; });
+        LN.setCards(arr);
+        renderDeck();
+      });
+
+      ops.appendChild(edit);
+      ops.appendChild(del);
+      chip.appendChild(t);
+      chip.appendChild(ops);
+      grid.appendChild(chip);
+    });
+  }
+
+  function openDeck() {
+    renderDeck();
+    document.getElementById('deckMask').classList.add('show');
+    document.getElementById('deckPanel').classList.add('show');
+  }
+  function closeDeck() {
+    document.getElementById('deckMask').classList.remove('show');
+    document.getElementById('deckPanel').classList.remove('show');
+  }
+  document.getElementById('deckBtn').addEventListener('click', openDeck);
+  document.getElementById('deckClose').addEventListener('click', closeDeck);
+  document.getElementById('deckMask').addEventListener('click', closeDeck);
+
+  document.getElementById('addCardBtn').addEventListener('click', addCard);
+  document.getElementById('newCardInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') addCard();
+  });
+  function addCard() {
+    var box = document.getElementById('newCardInput');
+    var val = box.value.trim();
+    if (!val) { box.focus(); return; }
+    var arr = LN.getCards();
+    arr.push({ id: LN.uid(), text: val });
+    LN.setCards(arr);
+    box.value = '';
+    renderDeck();
+    box.focus();
+  }
+  document.getElementById('resetCardsBtn').addEventListener('click', function () {
+    if (!window.confirm('恢复为 config.js 里的默认字卡？你自己添加的字卡会被清掉。')) return;
+    LN.resetCards();
+    renderDeck();
+  });
+
+  /* ---------------- 设置 ---------------- */
+  function renderApiState() {
+    var el = document.getElementById('apiState');
+    if (!el) return;
+    var a = LN.getApi();
+    el.textContent = a.apiKey
+      ? ('当前 Key：' + LN.maskKey(a.apiKey) + ' · 模型 ' + a.model)
+      : '还没有保存 Key，AI 模式还用不了。';
+  }
+
+  function openSettings() {
+    var p = persona();
+    document.getElementById('setName').value = p.name;
+    document.getElementById('setAvatar').value = p.avatarText;
+    document.getElementById('setUserName').value = p.userName;
+    document.getElementById('setPersona').value = p.systemPrompt;
+    renderApiState();
+    document.getElementById('settingsMask').classList.add('show');
+    document.getElementById('settingsDialog').classList.add('show');
+  }
+  function closeSettings() {
+    document.getElementById('settingsMask').classList.remove('show');
+    document.getElementById('settingsDialog').classList.remove('show');
+  }
+  document.getElementById('settingsBtn').addEventListener('click', openSettings);
+  document.getElementById('settingsClose').addEventListener('click', closeSettings);
+  document.getElementById('settingsMask').addEventListener('click', closeSettings);
+
+  function saveSettings() {
+    var p = {
+      name: document.getElementById('setName').value.trim() || '他',
+      avatarText: document.getElementById('setAvatar').value.trim() || '悟',
+      userName: document.getElementById('setUserName').value.trim() || '我',
+      systemPrompt: document.getElementById('setPersona').value.trim()
+    };
+    LN.setPersona(p);
+    refreshTitle();
+    renderMode();
+    renderApiState();
+    closeSettings();
+    addMessage('system', '设置已保存 ✓');
+  }
+  document.getElementById('saveSettings').addEventListener('click', saveSettings);
+
+  /* 接口设置：换 Key / 删 Key / 改地址模型 / 测连接，全部交给公共弹窗 */
+  document.getElementById('openApiBtn').addEventListener('click', function () {
+    LN.openApiDialog({
+      onSaved: function () {
+        renderApiState();
+        addMessage('system', LN.hasApi()
+          ? ('接口已更新 ✓ 当前 Key：' + LN.maskKey(LN.getApi().apiKey))
+          : '接口已更新：Key 现在是空的。');
+      }
+    });
+  });
+
+  document.getElementById('clearLog').addEventListener('click', function () {
+    if (!window.confirm('清空保存在这台设备上的聊天记录？清空后无法恢复。')) return;
+    LN.clearChatLog();
+    log = [];
+    history = [];
+    msgBox.innerHTML = '';
+    closeSettings();
+    addMessage('system', '聊天记录已清空。');
+  });
+
+  /* ---------------- 发送 ---------------- */
+  function send() {
+    var text = input.value.trim();
+    if (!text || waiting) return;
+    input.value = '';
+    addMessage('user', text);
+
+    if (mode === 'cards') {
+      lockInput(true);
+      var delay = Number(c.replyDelayMs) || 900;
+      setTimeout(addTyping, Math.max(0, delay - 600));
+      setTimeout(function () {
+        removeTyping();
+        addMessage('partner', pickCard());
+        lockInput(false);
+      }, delay);
+      return;
+    }
+
+    /* AI 模式 */
+    if (!LN.hasApi()) {
+      addMessage('system', '还没有 API Key，点右上角 ⚙ 设置里填写后再聊～');
+      return;
+    }
+    var p = persona();
+    history.push({ role: 'user', content: text });
+    lockInput(true);
+    addTyping();
+
+    var messages = [{ role: 'system', content: p.systemPrompt || ('你是' + p.name + '，正在和' + p.userName + '聊天。') }]
+      .concat(history.slice(-16));
+
+    LN.chatApi(messages, { temperature: 0.9, maxTokens: 800 })
+      .then(function (reply) {
+        removeTyping();
+        addMessage('partner', reply);
+        history.push({ role: 'assistant', content: reply });
+      })
+      .catch(function (err) {
+        removeTyping();
+        if (err && err.message === 'NOKEY') {
+          addMessage('system', '还没有 API Key，去右上角 ⚙ 填一下。');
+        } else {
+          addMessage('system', '接口调用失败：' + (err && err.message ? err.message : '未知错误'));
+        }
+      })
+      .then(function () { lockInput(false); });
+  }
+
+  sendBtn.addEventListener('click', send);
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
+
+  /* ---------------- 初始化 ---------------- */
+  sendBtn.textContent = c.sendButtonText || '发送';
+  refreshTitle();
+  renderMode();
+  renderApiState();
+
+  /* 把上次的记录画回来，并让 AI 接着上文聊 */
+  function restoreHistory() {
+    history = log.map(function (m) {
+      return { role: m.who === 'user' ? 'user' : 'assistant', content: m.text };
+    });
+    /* 上次没等到回复的那一条，不带进上下文，免得重复 */
+    while (history.length && history[history.length - 1].role === 'user') history.pop();
+    history = history.slice(-16);
+  }
+
+  if (log.length) {
+    log.forEach(function (m) { paintMessage(m.who, m.text); });
+    restoreHistory();
+    scrollToBottom();
+    addMessage('system', '欢迎回来，之前的聊天记录还在（只存在这台设备上）。');
+  } else if (!LN.hasApi()) {
+    addMessage('system', '这是你们的私密空间，聊过的内容会存在这台设备上。点 🎴 打开字卡库，点右上角 ⚙ 设置人设和 API Key。');
+  } else {
+    addMessage('system', '这是你们的私密空间，聊过的内容会存在这台设备上。');
+  }
+})();
+</script>
+</body>
+</html>

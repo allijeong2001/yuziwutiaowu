@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>他的朋友圈</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="float-deco" id="floatDeco"></div>
+
+<div class="page" style="padding-top:14px">
+  <header class="topbar">
+    <a class="back-btn" href="index.html" aria-label="返回主页">←</a>
+    <span class="topbar-title" id="pageTitle"></span>
+    <button class="icon-btn" id="apiBtn" type="button" aria-label="接口设置" style="margin-left:auto">⚙</button>
+  </header>
+
+  <!-- 需要 API 时的引导（不挡住朋友圈本身，随时可以收起来） -->
+  <div class="api-lock glass hidden" id="lockView" style="width:100%;max-width:480px">
+    <span class="ch-mark round lock-orn"><svg viewBox="0 0 100 140"><use href="#ln-cross"/></svg></span>
+    <h3>他还没接入接口</h3>
+    <p id="lockText"></p>
+    <div class="row" style="gap:10px;width:100%">
+      <button class="btn" id="lockOpenApi" type="button" style="flex:1">填接口 / 换 Key</button>
+      <button class="btn ghost" id="lockClose" type="button" style="flex:1">先不用</button>
+    </div>
+    <p class="muted">Key 只存在这台设备上，随时可以在右上角 ⚙ 里换一把或删掉。</p>
+  </div>
+
+  <!-- 朋友圈主体 -->
+  <div class="moments-wrap hidden" id="mainView">
+    <div class="moments-cover">
+      <span class="cover-gem"><svg viewBox="0 0 100 100"><use href="#ln-gem"/></svg></span>
+      <span class="cover-cross"><svg viewBox="0 0 100 140"><use href="#ln-cross"/></svg></span>
+    </div>
+    <div class="moments-profile">
+      <button class="avatar-btn" id="hisAvatarBtn" type="button" title="更换他的头像">
+        <span class="avatar-lg" id="hisAvatar"></span>
+        <span class="avatar-edit">📷</span>
+      </button>
+      <div class="p-name" id="mName"></div>
+      <button class="avatar-btn" id="myAvatarBtn" type="button" title="更换我的头像">
+        <span class="avatar-sm" id="myAvatar"></span>
+        <span class="avatar-edit">📷</span>
+      </button>
+    </div>
+    <div class="moments-feed" id="feed"></div>
+  </div>
+</div>
+
+<div class="moments-bar hidden" id="momentsBar">
+  <button class="btn" id="genBtn" type="button"></button>
+  <button class="btn ghost" id="postBtn" type="button">我也发一条</button>
+</div>
+
+<!-- ===== 自己发一条 ===== -->
+<div class="mask" id="postMask"></div>
+<div class="dialog" id="postDialog">
+  <div class="panel-head">
+    <span class="panel-title">我也发一条</span>
+    <button class="icon-btn" id="postClose" type="button">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="field">
+      <label>想说点什么</label>
+      <textarea id="postText" maxlength="300" placeholder="记录一下此刻…"></textarea>
+      <div class="tip">不需要 API Key，随时都能发。发出去的内容存在这台设备的浏览器里，自己发的可以随时删。发完他看到就会来评论你。</div>
+    </div>
+    <button class="btn block" id="postPublish" type="button">发布</button>
+  </div>
+</div>
+
+<!-- ===== 换头像 ===== -->
+<div class="mask" id="avMask"></div>
+<div class="dialog" id="avDialog">
+  <div class="panel-head">
+    <span class="panel-title" id="avTitle">更换头像</span>
+    <button class="icon-btn" id="avClose" type="button">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="avatar-preview" id="avPreview"></div>
+    <button class="btn block" id="avPick" type="button">从相册里选一张</button>
+    <div class="row mt8" style="gap:10px">
+      <button class="btn ghost" id="avReset" type="button" style="flex:1">恢复默认</button>
+      <button class="btn ghost" id="avCancel" type="button" style="flex:1">取消</button>
+    </div>
+    <p class="muted mt8">图片会先缩成小图再存进这台设备的浏览器里，不会上传到任何地方。</p>
+    <input type="file" id="avFile" accept="image/*" class="hidden">
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="js/app.js"></script>
+<script>
+(function () {
+  var m = SITE_CONFIG.moments || {};
+  LN.boot({ title: m.pageTitle || '他的朋友圈', decoCount: 12 });
+
+  var feed = document.getElementById('feed');
+  var lockView = document.getElementById('lockView');
+  var mainView = document.getElementById('mainView');
+  var momentsBar = document.getElementById('momentsBar');
+  var genBtn = document.getElementById('genBtn');
+  var postBtn = document.getElementById('postBtn');
+
+  var busy = false;      // 正在生成动态
+  var replying = {};     // 他正在某条动态下面回复
+  var replyTo = null;    // { postId, cmtId, name } 正在回复谁
+  var drafts = {};       // 还没发出去的输入内容，重绘时捞回来
+
+  document.getElementById('pageTitle').textContent = m.pageTitle || '他的朋友圈';
+  document.getElementById('lockText').textContent = m.needApiText ||
+    '填一下 API Key，他就能自己发动态、还会来评论你的动态。你自己的动态随时可以发，不需要 Key。';
+  genBtn.textContent = m.generateButton || '发一条动态';
+  postBtn.textContent = m.postButton || '我也发一条';
+
+  function persona() { return LN.getPersona(); }
+  function hisName() { return persona().name || m.ownerName || '五条悟'; }
+  function myName() { return persona().userName || '我'; }
+
+  /* ---------------- 数据 ---------------- */
+  /* 老数据兼容：评论补上 id / who */
+  function loadPosts() {
+    var list = LN.getMoments();
+    var changed = false;
+    list.forEach(function (p) {
+      if (!Array.isArray(p.comments)) { p.comments = []; changed = true; }
+      p.comments.forEach(function (c) {
+        if (!c.id) { c.id = LN.uid(); changed = true; }
+        if (!c.who || c.who === '我') { c.who = 'me'; changed = true; }
+        if (c.who !== 'me' && c.who !== 'him') { c.who = 'him'; changed = true; }
+      });
+      if (p.likedByHim === undefined) { p.likedByHim = false; changed = true; }
+    });
+    if (changed) LN.setMoments(list);
+    return list;
+  }
+
+  /* ---------------- 头像 ---------------- */
+  function avatarInner(who) {
+    var src = LN.getAvatar(who);
+    if (src) return '<img src="' + src + '" alt="">';
+    if (who === 'me') return '<span class="av-text">' + LN.esc(myName().slice(0, 1) || '我') + '</span>';
+    return '<svg viewBox="0 0 100 140"><use href="#ln-cross"/></svg>';
+  }
+
+  function renderHeader() {
+    document.getElementById('mName').textContent = hisName();
+    document.getElementById('hisAvatar').innerHTML = avatarInner('him');
+    document.getElementById('myAvatar').innerHTML = avatarInner('me');
+  }
+
+  /* ---------------- 渲染 ---------------- */
+  function commentHtml(c) {
+    var isMe = c.who === 'me';
+    var name = isMe ? myName() : hisName();
+    var re = c.replyToName ? '<span class="cmt-re">回复 ' + LN.esc(c.replyToName) + '</span>' : '';
+    return '<div class="cmt' + (isMe ? ' me' : '') + '" data-cmt="' + LN.esc(c.id) + '">' +
+      '<span class="cmt-av">' + avatarInner(c.who) + '</span>' +
+      '<div class="cmt-main">' +
+        '<div class="cmt-line"><b>' + LN.esc(name) + '</b>' + re + '：' + LN.esc(c.text) + '</div>' +
+        '<div class="cmt-foot">' +
+          '<span class="cmt-time" data-ts="' + c.time + '">' + LN.timeAgo(c.time) + '</span>' +
+          '<button class="cmt-op" type="button" data-op="reply">回复</button>' +
+          (isMe ? '<button class="cmt-op del" type="button" data-op="del">删除</button>' : '') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function typingHtml() {
+    return '<div class="cmt typing">' +
+      '<span class="cmt-av">' + avatarInner('him') + '</span>' +
+      '<div class="cmt-main"><div class="cmt-line"><b>' + LN.esc(hisName()) + '</b>' +
+        '<span class="typing-dots"><i></i><i></i><i></i></span></div></div>' +
+    '</div>';
+  }
+
+  function renderFeed() {
+    var list = loadPosts().slice().reverse(); // 最新的在最上面
+    feed.innerHTML = '';
+
+    if (!list.length) {
+      feed.innerHTML = '<div class="moments-empty">这里还什么都没有。<br>点下面「我也发一条」写点自己的，或者让他发一条～</div>';
+      return;
+    }
+
+    list.forEach(function (post) {
+      var mine = post.author === 'me';
+      var el = document.createElement('div');
+      el.className = 'post' + (mine ? ' mine' : '');
+      el.dataset.id = post.id;
+
+      var cmts = post.comments || [];
+      var cmtHtml = cmts.map(commentHtml).join('') + (replying[post.id] ? typingHtml() : '');
+
+      var avatarHtml = '<span class="p-avatar' + (mine ? ' me' : '') + '">' + avatarInner(post.author) + '</span>';
+
+      var actsHtml = mine
+        ? '<button type="button" class="p-ask">' + LN.esc(m.askCommentButton || '让他评论') + '</button>' +
+          '<button type="button" class="p-del">删除</button>'
+        : '<button type="button" class="like' + (post.liked ? ' on' : '') + '">' +
+            (post.liked ? '♥ 已赞' : '♡ 赞') + (post.likes ? ' ' + post.likes : '') +
+          '</button>';
+
+      var likedTip = (mine && post.likedByHim)
+        ? '<span class="p-liked">♥ ' + LN.esc(hisName()) + '</span>'
+        : '';
+
+      var isReplyHere = !!(replyTo && replyTo.postId === post.id);
+      var chipHtml = isReplyHere
+        ? '<div class="reply-chip">回复 ' + LN.esc(replyTo.name) +
+          '<button type="button" data-op="cancel-reply">✕</button></div>'
+        : '';
+      var placeholder = isReplyHere
+        ? ('回复 ' + replyTo.name + '…')
+        : (m.commentPlaceholder || '说点什么…');
+
+      el.innerHTML =
+        avatarHtml +
+        '<div class="p-main">' +
+          '<div class="p-author">' + LN.esc(mine ? myName() : hisName()) + '</div>' +
+          '<div class="p-text">' + LN.esc(post.text) + '</div>' +
+          '<div class="p-meta">' +
+            '<span class="p-time" data-ts="' + post.time + '">' + LN.timeAgo(post.time) + '</span>' +
+            likedTip +
+            '<span class="p-acts">' + actsHtml + '</span>' +
+          '</div>' +
+          '<div class="p-comments"' + (cmtHtml ? '' : ' style="display:none"') + '>' + cmtHtml + '</div>' +
+          '<div class="p-comment-box">' + chipHtml +
+            '<div class="p-comment-row">' +
+              '<input type="text" maxlength="120" placeholder="' + LN.esc(placeholder) + '">' +
+              '<button class="btn ghost small" type="button" data-op="send">发送</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
+      bindPost(el, post, mine);
+      feed.appendChild(el);
+    });
+
+    /* 把没发出去的草稿放回去 */
+    LN.$$('.post', feed).forEach(function (el) {
+      var d = drafts[el.dataset.id];
+      if (d) el.querySelector('.p-comment-row input').value = d;
+    });
+  }
+
+  function bindPost(el, post, mine) {
+    var input = el.querySelector('.p-comment-row input');
+    input.addEventListener('input', function () { drafts[post.id] = input.value; });
+
+    function submit() {
+      var val = input.value.trim();
+      if (!val) { input.focus(); return; }
+      drafts[post.id] = '';
+      addComment(post.id, val);
+    }
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+    el.querySelector('[data-op="send"]').addEventListener('click', submit);
+
+    var cancel = el.querySelector('[data-op="cancel-reply"]');
+    if (cancel) {
+      cancel.addEventListener('click', function () { replyTo = null; renderFeed(); });
+    }
+
+    /* 回复某条评论 */
+    LN.$$('[data-op="reply"]', el).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var cmtEl = b.closest('.cmt');
+        var cid = cmtEl ? cmtEl.getAttribute('data-cmt') : '';
+        var c = (post.comments || []).filter(function (x) { return x.id === cid; })[0];
+        if (!c) return;
+        replyTo = { postId: post.id, cmtId: cid, name: c.who === 'me' ? myName() : hisName() };
+        renderFeed();
+        var box = feed.querySelector('.post[data-id="' + post.id + '"] .p-comment-row input');
+        if (box) box.focus();
+      });
+    });
+
+    /* 删掉自己的评论 */
+    LN.$$('[data-op="del"]', el).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var cmtEl = b.closest('.cmt');
+        if (cmtEl) removeComment(post.id, cmtEl.getAttribute('data-cmt'));
+      });
+    });
+
+    /* 我也回复了他 → 他再回我一句 */
+    if (mine) {
+      el.querySelector('.p-ask').addEventListener('click', function () { askComment(post.id); });
+      el.querySelector('.p-del').addEventListener('click', function () { removePost(post.id); });
+    } else {
+      el.querySelector('.like').addEventListener('click', function () { toggleLike(post.id); });
+    }
+  }
+
+  /* ---------------- 操作 ---------------- */
+  function removePost(id) {
+    if (!window.confirm('删掉这条动态？')) return;
+    LN.setMoments(loadPosts().filter(function (p) { return p.id !== id; }));
+    delete drafts[id];
+    renderFeed();
+  }
+
+  function removeComment(postId, cmtId) {
+    if (!window.confirm('删掉这条评论？')) return;
+    var list = loadPosts();
+    list.forEach(function (p) {
+      if (p.id !== postId) return;
+      p.comments = (p.comments || []).filter(function (c) { return c.id !== cmtId; });
+      p.comments.forEach(function (c) {
+        if (c.replyTo === cmtId) { c.replyTo = null; c.replyToName = ''; }
+      });
+    });
+    LN.setMoments(list);
+    renderFeed();
+  }
+
+  function toggleLike(id) {
+    var list = loadPosts();
+    list.forEach(function (p) {
+      if (p.id !== id) return;
+      if (p.liked) { p.liked = false; p.likes = Math.max(0, (p.likes || 1) - 1); }
+      else { p.liked = true; p.likes = (p.likes || 0) + 1; }
+    });
+    LN.setMoments(list);
+    renderFeed();
+  }
+
+  /* 我发一条评论：存下来，然后让他接一句 */
+  function addComment(postId, text) {
+    var list = loadPosts();
+    var target = null;
+    var myCmt = null;
+
+    list.forEach(function (p) {
+      if (p.id !== postId) return;
+      p.comments = p.comments || [];
+      myCmt = {
+        id: LN.uid(),
+        who: 'me',
+        text: text,
+        time: Date.now(),
+        replyTo: null,
+        replyToName: ''
+      };
+      if (replyTo && replyTo.postId === postId && replyTo.cmtId) {
+        myCmt.replyTo = replyTo.cmtId;
+        myCmt.replyToName = replyTo.name;
+      }
+      p.comments.push(myCmt);
+      target = p;
+    });
+
+    replyTo = null;
+    LN.setMoments(list);
+    renderFeed();
+    if (target && myCmt) himReply(target, myCmt);
+  }
+
+  /* ---------------- 他说话 ---------------- */
+  function cleanText(s) {
+    return String(s).trim()
+      .replace(/^["'“”『「]+/, '')
+      .replace(/["'“”』」]+$/, '')
+      .replace(/^(评论|回复|朋友圈|动态|内容)[:：]\s*/, '')
+      .trim();
+  }
+
+  /* myCmt 为空 = 评论这条动态；有值 = 回复我这条评论 */
+  function himReply(post, myCmt) {
+    if (!LN.hasApi()) return;
+    if (replying[post.id]) return;
+
+    replying[post.id] = true;
+    renderFeed();
+
+    var p = persona();
+    var mine = post.author === 'me';
+    var who = myName();
+    var his = (post.comments || []).filter(function (c) { return c.who === 'him'; });
+
+    var sys = (p.systemPrompt || ('你是' + hisName() + '。')) + '\n' +
+      (myCmt
+        ? ('现在请你以' + hisName() + '的身份，回复' + who + '在朋友圈下面的评论。')
+        : ('现在请你以' + hisName() + '的身份，在' + who + '发的这条朋友圈下面评论一句。')) +
+      (m.replyStyleHint || '要求：第一人称，1 句话，短一点、口语化，像随手打的；不要加引号，不要分点，不要解释，只输出这句话本身。');
+
+    var ctx = '这条朋友圈是' + (mine ? who + '发的' : '你（' + hisName() + '）发的') + '：\n「' + post.text + '」\n';
+    if (his.length) {
+      ctx += '\n你在这条下面已经说过：\n' +
+        his.slice(-3).map(function (c) { return '· ' + c.text; }).join('\n') + '\n';
+    }
+    if (myCmt) {
+      ctx += '\n' + (myCmt.replyToName
+        ? (who + '刚回复了你的评论：\n「' + myCmt.text + '」\n')
+        : (who + '刚评论：\n「' + myCmt.text + '」\n'));
+    }
+    ctx += '\n请直接输出你要说的话。';
+
+    LN.chatApi([
+      { role: 'system', content: sys },
+      { role: 'user', content: ctx }
+    ], { temperature: 1, maxTokens: 120 })
+      .then(function (text) {
+        var list = loadPosts();
+        list.forEach(function (t) {
+          if (t.id !== post.id) return;
+          t.comments = t.comments || [];
+          t.comments.push({
+            id: LN.uid(),
+            who: 'him',
+            text: cleanText(text),
+            time: Date.now(),
+            replyTo: myCmt ? myCmt.id : null,
+            replyToName: myCmt ? who : ''
+          });
+          /* 评论我的动态时顺手点个赞 */
+          if (mine && !t.likedByHim) {
+            t.likedByHim = true;
+            t.likes = (t.likes || 0) + 1;
+          }
+        });
+        LN.setMoments(list);
+      })
+      .catch(function (err) {
+        var tip = document.createElement('div');
+        tip.className = 'moments-empty';
+        tip.style.color = '#d0476c';
+        tip.style.padding = '10px';
+        tip.textContent = '他没能接上话：' + (err && err.message ? err.message : '未知错误');
+        feed.insertBefore(tip, feed.firstChild);
+      })
+      .then(function () {
+        replying[post.id] = false;
+        renderFeed();
+      });
+  }
+
+  /* 我的动态：随时可以手动喊他来评论 */
+  function askComment(postId) {
+    if (!LN.hasApi()) { showLock(); return; }
+    var post = loadPosts().filter(function (p) { return p.id === postId; })[0];
+    if (!post) return;
+    himReply(post, null);
+  }
+
+  /* 时间自动刷新（几分钟前的显示会随时间变化） */
+  setInterval(function () {
+    LN.$$('[data-ts]').forEach(function (el) {
+      var ts = Number(el.getAttribute('data-ts'));
+      if (ts) el.textContent = LN.timeAgo(ts);
+    });
+  }, 30000);
+
+  /* ---------------- 生成动态 ---------------- */
+  function generate() {
+    if (busy) return;
+    if (!LN.hasApi()) { showLock(); return; }
+
+    busy = true;
+    genBtn.disabled = true;
+    genBtn.textContent = '他正在编辑…';
+
+    var p = persona();
+    var scenes = m.sceneList || ['日常'];
+    var scene = scenes[Math.floor(Math.random() * scenes.length)];
+    var now = Date.now();
+
+    var sys = (p.systemPrompt || ('你是' + p.name + '。')) +
+      '\n现在请你以' + (p.name || '五条悟') + '的身份发一条微信朋友圈动态。' +
+      '要求：第一人称，1~3 句话，口语化、有情绪、有画面感，可以带 0~2 个 emoji；' +
+      '不要出现「朋友圈」「动态」「AI」这些字眼，不要分点，不要加引号，不要做任何解释，只输出动态正文。';
+
+    var usr = '场景参考：' + scene + '。现在是 ' + LN.fmtFull(now) + '。' + (m.styleHint || '');
+
+    LN.chatApi([
+      { role: 'system', content: sys },
+      { role: 'user', content: usr }
+    ], { temperature: 1, maxTokens: 220 })
+      .then(function (text) {
+        var list = loadPosts();
+        list.push({
+          id: LN.uid(),
+          author: 'him',
+          text: cleanText(text),
+          time: Date.now(),
+          likes: 0,
+          liked: false,
+          likedByHim: false,
+          comments: []
+        });
+        LN.setMoments(list);
+        renderFeed();
+      })
+      .catch(function (err) {
+        renderFeed();
+        var tip = document.createElement('div');
+        tip.className = 'moments-empty';
+        tip.style.color = '#d0476c';
+        tip.textContent = '生成失败：' + (err && err.message ? err.message : '未知错误');
+        feed.insertBefore(tip, feed.firstChild);
+      })
+      .then(function () {
+        busy = false;
+        genBtn.disabled = false;
+        genBtn.textContent = m.generateButton || '发一条动态';
+      });
+  }
+
+  genBtn.addEventListener('click', function () {
+    if (!LN.hasApi()) {
+      showLock();
+      return;
+    }
+    generate();
+  });
+
+  /* ---------------- 接口（右上角 ⚙ 随时可开） ---------------- */
+  function showLock() { lockView.classList.remove('hidden'); }
+  function hideLock() { lockView.classList.add('hidden'); }
+
+  function openApi() {
+    LN.openApiDialog({
+      onSaved: function () {
+        if (LN.hasApi()) hideLock();
+        else showLock();
+        renderFeed();
+      }
+    });
+  }
+
+  document.getElementById('apiBtn').addEventListener('click', openApi);
+  document.getElementById('lockOpenApi').addEventListener('click', openApi);
+  document.getElementById('lockClose').addEventListener('click', hideLock);
+
+  /* ---------------- 换头像 ---------------- */
+  var avWho = 'him';
+  var avMask = document.getElementById('avMask');
+  var avDialog = document.getElementById('avDialog');
+  var avFile = document.getElementById('avFile');
+  var avPreview = document.getElementById('avPreview');
+  var avPick = document.getElementById('avPick');
+
+  function openAvatar(who) {
+    avWho = who;
+    document.getElementById('avTitle').textContent =
+      who === 'me' ? (m.myAvatarLabel || '我的头像') : (m.hisAvatarLabel || '他的头像');
+    avPreview.innerHTML = avatarInner(who);
+    avMask.classList.add('show');
+    avDialog.classList.add('show');
+  }
+  function closeAvatar() {
+    avMask.classList.remove('show');
+    avDialog.classList.remove('show');
+  }
+
+  document.getElementById('hisAvatarBtn').addEventListener('click', function () { openAvatar('him'); });
+  document.getElementById('myAvatarBtn').addEventListener('click', function () { openAvatar('me'); });
+  document.getElementById('avClose').addEventListener('click', closeAvatar);
+  document.getElementById('avCancel').addEventListener('click', closeAvatar);
+  avMask.addEventListener('click', closeAvatar);
+
+  avPick.addEventListener('click', function () { avFile.click(); });
+
+  avFile.addEventListener('change', function () {
+    var f = avFile.files && avFile.files[0];
+    avFile.value = '';
+    if (!f) return;
+
+    avPick.disabled = true;
+    avPick.textContent = '处理中…';
+
+    LN.pickImage(f, 240)
+      .then(function (dataUrl) {
+        LN.setAvatar(avWho, dataUrl);
+        avPreview.innerHTML = avatarInner(avWho);
+        renderHeader();
+        renderFeed();
+        closeAvatar();
+      })
+      .catch(function (e) {
+        window.alert(e && e.message ? e.message : '图片处理失败，换一张试试');
+      })
+      .then(function () {
+        avPick.disabled = false;
+        avPick.textContent = '从相册里选一张';
+      });
+  });
+
+  document.getElementById('avReset').addEventListener('click', function () {
+    LN.clearAvatar(avWho);
+    avPreview.innerHTML = avatarInner(avWho);
+    renderHeader();
+    renderFeed();
+  });
+
+  /* ---------------- 自己发一条：不需要 Key，随时能发 ---------------- */
+  var postMask = document.getElementById('postMask');
+  var postDialog = document.getElementById('postDialog');
+  var postText = document.getElementById('postText');
+
+  function openPost() {
+    postText.value = '';
+    postMask.classList.add('show');
+    postDialog.classList.add('show');
+    setTimeout(function () { postText.focus(); }, 60);
+  }
+  function closePost() {
+    postMask.classList.remove('show');
+    postDialog.classList.remove('show');
+  }
+  postBtn.addEventListener('click', openPost);
+  document.getElementById('postClose').addEventListener('click', closePost);
+  postMask.addEventListener('click', closePost);
+
+  function publish() {
+    var text = postText.value.trim();
+    if (!text) { postText.focus(); return; }
+
+    var list = loadPosts();
+    list.push({
+      id: LN.uid(),
+      author: 'me',
+      text: text,
+      time: Date.now(),
+      likes: 0,
+      liked: false,
+      likedByHim: false,
+      comments: []
+    });
+    LN.setMoments(list);
+    closePost();
+    renderFeed();
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // 最新的在最上面
+
+    /* 他看到就会来评论一句 */
+    var fresh = loadPosts().filter(function (p) { return p.author === 'me'; }).slice(-1)[0];
+    if (fresh && LN.hasApi()) {
+      setTimeout(function () { himReply(fresh, null); }, 900);
+    }
+  }
+  document.getElementById('postPublish').addEventListener('click', publish);
+  postText.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) publish();
+  });
+
+  /* ---------------- 初始化 ---------------- */
+  mainView.classList.remove('hidden');
+  momentsBar.classList.remove('hidden');
+  renderHeader();
+  renderFeed();
+  if (!LN.hasApi()) showLock();
+})();
+</script>
+</body>
+</html>
