@@ -156,6 +156,7 @@
     avatarHim: 'lovenote.avatar.him.v1',
     avatarMe: 'lovenote.avatar.me.v1',
     homePhoto: 'lovenote.homePhoto.v1',
+    homeText: 'lovenote.homeText.v1',
     letters: 'lovenote.letters.v1',
     letterCount: 'lovenote.letterCount.v1',
     letterNext: 'lovenote.letterNext.v1',
@@ -494,6 +495,68 @@ LN.pickImage = function (file, size) {
   });
 };
 
+/* ---- 主页文字（本机自定义，覆盖 config.js 里的 global 文案） ---- */
+/* 只覆盖这四项：都是主页上直接显示给人看的短文案。
+ * 本机存过就用本机的，没存过用 config.js 的；存空串等于"没存"。 */
+var TEXT_FIELDS = ['siteTitle', 'coupleNames', 'loveNoteText', 'slogan'];
+LN.TEXT_FIELDS = TEXT_FIELDS;
+
+var TEXT_FALLBACK = {
+  siteTitle: 'Love Note',
+  coupleNames: '',
+  loveNoteText: 'love note',
+  slogan: ''
+};
+
+/* config.js 里这一项的原始文案（弹窗里提示"默认是什么"要用） */
+LN.getTextDefault = function (key) {
+  var g = cfg().global || {};
+  var v = g[key];
+  if (typeof v === 'string' && v) return v;
+  return TEXT_FALLBACK[key] === undefined ? '' : TEXT_FALLBACK[key];
+};
+
+LN.getText = function (key) {
+  var s = read(KEYS.homeText, {});
+  if (s && typeof s === 'object') {
+    var v = s[key];
+    if (typeof v === 'string' && v) return v;
+  }
+  return LN.getTextDefault(key);
+};
+
+LN.setText = function (key, val) {
+  if (TEXT_FIELDS.indexOf(key) < 0) return false;
+  var v = String(val == null ? '' : val).trim();
+  if (!v) return LN.clearText(key);   // 留空 = 恢复默认
+  var s = read(KEYS.homeText, {});
+  if (!s || typeof s !== 'object') s = {};
+  s[key] = v;
+  return write(KEYS.homeText, s);
+};
+
+LN.clearText = function (key) {
+  var s = read(KEYS.homeText, {});
+  if (!s || typeof s !== 'object') return false;
+  delete s[key];
+  if (!Object.keys(s).length) {
+    try { window.localStorage.removeItem(KEYS.homeText); return true; }
+    catch (e) { return false; }
+  }
+  return write(KEYS.homeText, s);
+};
+
+LN.hasOwnText = function (key) {
+  var s = read(KEYS.homeText, {});
+  return !!(s && typeof s === 'object' && typeof s[key] === 'string' && s[key]);
+};
+
+/* 全部改回 config.js 里的文案 */
+LN.clearAllText = function () {
+  try { window.localStorage.removeItem(KEYS.homeText); return true; }
+  catch (e) { return false; }
+};
+
 /* ---- 聊天模式 ---- */
   LN.getMode = function () { return read(KEYS.mode, 'cards') === 'ai' ? 'ai' : 'cards'; };
   LN.setMode = function (m) { return write(KEYS.mode, m); };
@@ -600,7 +663,15 @@ LN.pickImage = function (file, size) {
   LN.boot = function (opts) {
     opts = opts || {};
     LN.sprite();
-    var g = cfg().global || {};
+    var base = cfg().global || {};
+    /* 拷一份，再把本机改过的文字盖上去，
+     * 这样每个页面读 g.siteTitle 拿到的都是用户自定义的文案 */
+    var g = {};
+    for (var k in base) {
+      if (Object.prototype.hasOwnProperty.call(base, k)) g[k] = base[k];
+    }
+    TEXT_FIELDS.forEach(function (f) { g[f] = LN.getText(f); });
+
     var root = document.documentElement;
     if (g.gradientFrom) root.style.setProperty('--grad-from', g.gradientFrom);
     if (g.gradientTo) root.style.setProperty('--grad-to', g.gradientTo);

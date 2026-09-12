@@ -447,6 +447,33 @@ input, textarea, select { font-family: inherit; color: var(--ink); }
   opacity: .6;
 }
 
+/* ---------- 可以点着改的主页文字 ---------- */
+.editable-text {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.editable-text:hover,
+.editable-text:focus-visible {
+  outline: 2px dashed rgba(43, 127, 196, .5);
+  outline-offset: 5px;
+  border-radius: 999px;
+}
+.home-names.editable-text:hover,
+.home-names.editable-text:focus-visible {
+  border-radius: 20px;
+  outline-offset: 9px;
+}
+.editable-text:active { opacity: .75; }
+/* 触屏没有 hover：常显一圈虚线，让人知道这里能点 */
+@media (hover: none) {
+  .editable-text {
+    outline: 1.5px dashed rgba(43, 127, 196, .32);
+    outline-offset: 5px;
+    border-radius: 999px;
+  }
+  .home-names.editable-text { border-radius: 20px; outline-offset: 9px; }
+}
+
 /* 窄屏缩一档，保证「花见玉子 & 五条悟」一行放得下 */
 @media (max-width: 380px) {
   .home-names { font-size: 24px; letter-spacing: 2px; }

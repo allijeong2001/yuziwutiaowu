@@ -123,7 +123,7 @@
   function refreshTitle() {
     var p = persona();
     titleEl.textContent = p.name;
-    document.title = (SITE_CONFIG.global.siteTitle || 'Love Note') + ' · 和' + p.name + '聊天';
+    document.title = (boot.g.siteTitle || 'Love Note') + ' · 和' + p.name + '聊天';
   }
 
   /* 存一条 + 画一条；系统提示只画不存 */
